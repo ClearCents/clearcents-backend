@@ -16,21 +16,46 @@ app.get('/', (req, res) => {
     res.send('ClearCents Backend is running!')
 })
 
+// SIGNUP
+app.post('/auth/signup', async (req, res) => {
+    const { email, password } = req.body
+    const { data, error } = await supabase.auth.signUp({ email, password })
+    if (error) return res.status(400).json({ error: error.message })
+    res.json({ message: 'Signup successful', user: data.user })
+})
+
+// LOGIN
+app.post('/auth/login', async (req, res) => {
+    const { email, password } = req.body
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return res.status(400).json({ error: error.message })
+    res.json({ message: 'Login successful', token: data.session.access_token })
+})
+
 // Get all subscriptions
 app.get('/subscriptions', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
     const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
+        .eq('user_id', userData.user.id)
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
 })
 
 // Add a subscription
 app.post('/subscriptions', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
     const { name, price, usage_hours, is_active } = req.body
     const { data, error } = await supabase
         .from('subscriptions')
-        .insert([{ name, price, usage_hours, is_active }])
+        .insert([{ name, price, usage_hours, is_active, user_id: userData.user.id}])
         .select()
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
@@ -38,11 +63,16 @@ app.post('/subscriptions', async (req, res) => {
 
 // Delete a subscription
 app.delete('/subscriptions/:id', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
     const { id } = req.params
     const { error } = await supabase
         .from('subscriptions')
         .delete()
         .eq('id', id)
+        .eq('user_id', userData.user.id)
     if (error) return res.status(500).json({ error: error.message })
     res.json({ message: 'Deleted successfully' })
 })
