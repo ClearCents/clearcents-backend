@@ -23,11 +23,14 @@ app.post('/auth/signup', async (req, res) => {
     const { email, password } = req.body
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) return res.status(400).json({ error: error.message })
-    res.json({ message: 'Signup successful', user: data.user })
+    res.json({
+    message: 'Signup successful',
+    token: data.session?.access_token
+});
 })
 
 // LOGIN
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/signin', async (req, res) => {
     const { email, password } = req.body
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) return res.status(400).json({ error: error.message })
@@ -79,7 +82,7 @@ app.delete('/subscriptions/:id', async (req, res) => {
     res.json({ message: 'Deleted successfully' })
 })
 
-const PORT = 3000
+const PORT = 5000
 app.listen(PORT, () => {
     console.log(`ClearCents server running on port ${PORT}`)
 })
