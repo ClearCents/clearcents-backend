@@ -82,6 +82,30 @@ app.delete('/subscriptions/:id', async (req, res) => {
     res.json({ message: 'Deleted successfully' })
 })
 
+//Get your email
+app.get('/auth/me', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        const { data, error } = await supabase.auth.getUser(token);
+
+        if (error) {
+            return res.status(401).json({ error: error.message });
+        }
+
+        res.json({
+            id: data.user.id,
+            email: data.user.email
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 const PORT = 5000
 app.listen(PORT, () => {
     console.log(`ClearCents server running on port ${PORT}`)
