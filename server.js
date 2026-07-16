@@ -13,6 +13,11 @@ const supabase = createClient(
     process.env.SUPABASE_KEY
 )
 
+const supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+
 function getSupabaseForUser(token) {
     return createClient(
         process.env.SUPABASE_URL,
@@ -96,7 +101,8 @@ app.get('/auth/me', async (req, res) => {
 
         res.json({
             id: data.user.id,
-            email: data.user.email
+            email: data.user.email,
+            created_at: data.user.created_at
         });
     } catch (err) {
         res.status(500).json({ error: 'Server error' });
@@ -176,6 +182,35 @@ app.post('/subscriptions', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
 })
+
+app.delete('/auth/delete-account', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        // Verify the user
+        const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError || !userData.user) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        // Delete the user from Supabase Auth
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.json({ message: 'Account deleted successfully' });
+
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 const PORT = 5000
 app.listen(PORT, () => {
