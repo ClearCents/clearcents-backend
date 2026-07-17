@@ -174,10 +174,10 @@ app.post('/subscriptions', async (req, res) => {
 
     const currency = profileData?.preferred_currency || 'USD'
 
-    const { name, price, usage_hours, is_active } = req.body
+    const { name, price, usage_hours, is_active, billing_cycle, start_date } = req.body
     const { data, error } = await userClient
         .from('subscriptions')
-        .insert([{ name, price, usage_hours, is_active, user_id: userData.user.id, currency }])
+        .insert([{ name, price, usage_hours, is_active, billing_cycle, start_date, user_id: userData.user.id }])
         .select()
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
