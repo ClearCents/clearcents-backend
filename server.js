@@ -1,9 +1,6 @@
 const express = require('express')
 const { createClient } = require('@supabase/supabase-js')
-app.use(cors({
-  origin: ['https://clearcents-frontend-ob9o-fvjkh3qxa-clear-cents.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
-  credentials: true
-}))
+const cors = require('cors')
 
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config()
@@ -11,7 +8,10 @@ if (process.env.NODE_ENV !== 'production') {
 
 const app = express()
 app.use(express.json())
-app.use(cors())
+app.use(cors({
+  origin: ['https://clearcents-frontend-ob9o-fvjkh3qxa-clear-cents.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
+  credentials: true
+}))
 
 // Connect to Supabase
 const supabase = createClient(
