@@ -1,7 +1,10 @@
 const express = require('express')
 const { createClient } = require('@supabase/supabase-js')
 const cors = require('cors')
-require('dotenv').config()
+
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config()
+}
 
 const app = express()
 app.use(express.json())
