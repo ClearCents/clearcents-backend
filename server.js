@@ -9,7 +9,7 @@ if (process.env.NODE_ENV !== 'production') {
 const app = express()
 app.use(express.json())
 app.use(cors({
-  origin: ['https://clearcents-frontend-ob9o-fvjkh3qxa-clear-cents.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
+  origin: ['https://clearcents-frontend-ob9o-chi.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
   credentials: true
 }))
 
