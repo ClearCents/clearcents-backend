@@ -1,6 +1,9 @@
 const express = require('express')
 const { createClient } = require('@supabase/supabase-js')
-const cors = require('cors')
+app.use(cors({
+  origin: ['https://clearcents-frontend-ob9o-fvjkh3qxa-clear-cents.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
+  credentials: true
+}))
 
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config()
