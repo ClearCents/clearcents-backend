@@ -41,15 +41,54 @@ app.get('/', (req, res) => {
     res.send('ClearCents Backend is running!')
 })
 
-// SIGNUP
+// SIGNUP (with email verification flow)
 app.post('/auth/signup', async (req, res) => {
     const { email, password } = req.body
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) return res.status(400).json({ error: error.message })
+
     res.json({
-    message: 'Signup successful',
-    token: data.session?.access_token
-});
+        message: 'Verification code sent to your email',
+        needsVerification: true
+    })
+})
+
+// VERIFY SIGNUP CODE
+app.post('/auth/verify-signup', async (req, res) => {
+    const { email, token } = req.body
+
+    if (!email || !token) {
+        return res.status(400).json({ error: 'Email and code are required' })
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'signup'
+    })
+
+    if (error) {
+        return res.status(400).json({ error: error.message })
+    }
+
+    res.json({
+        message: 'Email verified successfully',
+        token: data.session?.access_token
+    })
+})
+
+// RESEND VERIFICATION CODE
+app.post('/auth/resend-code', async (req, res) => {
+    const { email } = req.body
+    if (!email) return res.status(400).json({ error: 'Email is required' })
+
+    const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email
+    })
+
+    if (error) return res.status(400).json({ error: error.message })
+    res.json({ message: 'Verification code resent' })
 })
 
 // LOGIN
@@ -74,6 +113,28 @@ app.get('/subscriptions', async (req, res) => {
     res.json(data)
 })
 
+// Add a subscription
+app.post('/subscriptions', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency } = req.body
+
+    const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
+    const finalCurrency = validCurrencies.includes(currency) ? currency : 'USD'
+
+    const { data, error } = await userClient
+        .from('subscriptions')
+        .insert([{ name, price, usage_hours, is_active, billing_cycle, start_date, currency: finalCurrency, user_id: userData.user.id }])
+        .select()
+    if (error) return res.status(500).json({ error: error.message })
+    res.json(data)
+})
+
 // Delete a subscription
 app.delete('/subscriptions/:id', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
@@ -90,7 +151,7 @@ app.delete('/subscriptions/:id', async (req, res) => {
     res.json({ message: 'Deleted successfully' })
 })
 
-//Get your email
+// Get your email
 app.get('/auth/me', async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
@@ -115,27 +176,54 @@ app.get('/auth/me', async (req, res) => {
     }
 });
 
-app.post('/subscriptions', async (req, res) => {
+// CHANGE PASSWORD
+app.post('/auth/change-password', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
 
-    const userClient = getSupabaseForUser(token)
-    const { data: userData, error: userError } = await userClient.auth.getUser(token)
-    if (userError) return res.status(401).json({ error: 'Invalid token' })
+    const { currentPassword, newPassword } = req.body
 
-    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency } = req.body
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Current and new password are required' })
+    }
+    if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters long' })
+    }
 
-    const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
-    const finalCurrency = validCurrencies.includes(currency) ? currency : 'USD'
+    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+    if (userError || !userData.user) {
+        return res.status(401).json({ error: 'Invalid token' })
+    }
 
-    const { data, error } = await userClient
-        .from('subscriptions')
-        .insert([{ name, price, usage_hours, is_active, billing_cycle, start_date, currency: finalCurrency, user_id: userData.user.id }])
-        .select()
-    if (error) return res.status(500).json({ error: error.message })
-    res.json(data)
+    // Verify current password using a fresh, isolated client
+    const verifyClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_KEY
+    )
+
+    const { error: signInError } = await verifyClient.auth.signInWithPassword({
+        email: userData.user.email,
+        password: currentPassword
+    })
+
+    if (signInError) {
+        return res.status(401).json({ error: 'Current password is incorrect' })
+    }
+
+    // Update password using the admin client (no session needed)
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        userData.user.id,
+        { password: newPassword }
+    )
+
+    if (updateError) {
+        return res.status(500).json({ error: updateError.message })
+    }
+
+    res.json({ message: 'Password updated successfully' })
 })
 
+// DELETE ACCOUNT
 app.delete('/auth/delete-account', async (req, res) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
@@ -144,14 +232,12 @@ app.delete('/auth/delete-account', async (req, res) => {
             return res.status(401).json({ error: 'No token provided' });
         }
 
-        // Verify the user
         const { data: userData, error: userError } = await supabase.auth.getUser(token);
 
         if (userError || !userData.user) {
             return res.status(401).json({ error: 'Invalid token' });
         }
 
-        // Delete the user from Supabase Auth
         const { error } = await supabaseAdmin.auth.admin.deleteUser(userData.user.id);
 
         if (error) {
@@ -165,7 +251,7 @@ app.delete('/auth/delete-account', async (req, res) => {
     }
 });
 
-const PORT = 5000
+const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
     console.log(`ClearCents server running on port ${PORT}`)
 })
