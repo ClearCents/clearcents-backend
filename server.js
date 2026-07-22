@@ -9,7 +9,13 @@ if (process.env.NODE_ENV !== 'production') {
 const app = express()
 app.use(express.json())
 app.use(cors({
-  origin: ['https://clearcents-frontend-ob9o-chi.vercel.app', 'http://localhost:3000', 'http://localhost:3001'],
+  origin: function(origin, callback) {
+    if (!origin || origin.includes('vercel.app') || origin.includes('localhost')) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
   credentials: true
 }))
 
