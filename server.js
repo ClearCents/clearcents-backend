@@ -6,6 +6,8 @@ if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config()
 }
 
+const gmailAuthRoutes = require('./routes/gmailAuth');
+
 const app = express()
 app.use(express.json())
 app.use(cors({
@@ -18,6 +20,8 @@ app.use(cors({
   },
   credentials: true
 }))
+
+app.use('/auth/gmail', gmailAuthRoutes)
 
 // Connect to Supabase
 const supabase = createClient(
