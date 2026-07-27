@@ -132,7 +132,7 @@ app.post('/subscriptions', async (req, res) => {
     const { data: userData, error: userError } = await userClient.auth.getUser(token)
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
-    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency, url, category } = req.body
+    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency, url, category, description } = req.body
     const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
 
     let finalCurrency = currency
@@ -158,6 +158,7 @@ app.post('/subscriptions', async (req, res) => {
             currency: finalCurrency,
             url: url || null,
             category: category || null,
+            description: description || null,
             user_id: userData.user.id
         }])
         .select()
