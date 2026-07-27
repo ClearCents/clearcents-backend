@@ -132,14 +132,34 @@ app.post('/subscriptions', async (req, res) => {
     const { data: userData, error: userError } = await userClient.auth.getUser(token)
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
-    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency } = req.body
-
+    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency, url, category } = req.body
     const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
-    const finalCurrency = validCurrencies.includes(currency) ? currency : 'USD'
+
+    let finalCurrency = currency
+    // If frontend didn't send a valid currency, fall back to the user's saved profile preference
+    if (!validCurrencies.includes(finalCurrency)) {
+        const { data: profileData } = await userClient
+            .from('profiles')
+            .select('preferred_currency')
+            .eq('user_id', userData.user.id)
+            .maybeSingle()
+        finalCurrency = profileData?.preferred_currency || 'USD'
+    }
 
     const { data, error } = await userClient
         .from('subscriptions')
-        .insert([{ name, price, usage_hours, is_active, billing_cycle, start_date, currency: finalCurrency, user_id: userData.user.id }])
+        .insert([{
+            name,
+            price,
+            usage_hours,
+            is_active,
+            billing_cycle,
+            start_date,
+            currency: finalCurrency,
+            url: url || null,
+            category: category || null,
+            user_id: userData.user.id
+        }])
         .select()
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
@@ -186,6 +206,54 @@ app.get('/auth/me', async (req, res) => {
     }
 });
 
+// GET current user's preferred currency
+app.get('/profile/currency', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { data, error } = await userClient
+        .from('profiles')
+        .select('preferred_currency')
+        .eq('user_id', userData.user.id)
+        .maybeSingle()
+
+    if (error) return res.status(500).json({ error: error.message })
+
+    res.json({ preferred_currency: data?.preferred_currency || 'USD' })
+})
+
+// UPDATE (or create) current user's preferred currency
+app.patch('/profile/currency', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { currency } = req.body
+    const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
+    if (!validCurrencies.includes(currency)) {
+        return res.status(400).json({ error: 'Invalid currency' })
+    }
+
+    const { data, error } = await userClient
+        .from('profiles')
+        .upsert(
+            { user_id: userData.user.id, preferred_currency: currency },
+            { onConflict: 'user_id' }
+        )
+        .select()
+
+    if (error) return res.status(500).json({ error: error.message })
+
+    res.json({ preferred_currency: data[0].preferred_currency })
+})
+
 // CHANGE PASSWORD
 app.post('/auth/change-password', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
@@ -205,7 +273,6 @@ app.post('/auth/change-password', async (req, res) => {
         return res.status(401).json({ error: 'Invalid token' })
     }
 
-    // Verify current password using a fresh, isolated client
     const verifyClient = createClient(
         process.env.SUPABASE_URL,
         process.env.SUPABASE_KEY
@@ -220,7 +287,6 @@ app.post('/auth/change-password', async (req, res) => {
         return res.status(401).json({ error: 'Current password is incorrect' })
     }
 
-    // Update password using the admin client (no session needed)
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
         userData.user.id,
         { password: newPassword }
