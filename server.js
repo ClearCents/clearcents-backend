@@ -123,6 +123,68 @@ app.get('/subscriptions', async (req, res) => {
     res.json(data)
 })
 
+const PDFDocument = require("pdfkit");
+
+app.get("/subscriptions/download", async (req, res) => {
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+        return res.status(401).json({ error: "No token provided" });
+    }
+
+    const { data: userData, error: userError } =
+        await supabase.auth.getUser(token);
+
+    if (userError) {
+        return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const { data: subscriptions, error } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", userData.user.id);
+
+    if (error) {
+        return res.status(500).json({ error: error.message });
+    }
+
+    const doc = new PDFDocument({ margin: 50 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=subscriptions.pdf"
+    );
+
+    doc.pipe(res);
+
+    doc.fontSize(24).text("ClearCents Subscription Report");
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Email: ${userData.user.email}`);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`);
+
+    doc.moveDown();
+
+    subscriptions.forEach((sub, index) => {
+        doc
+            .fontSize(16)
+            .text(`${index + 1}. ${sub.name}`);
+
+        doc.fontSize(12);
+        doc.text(`Price: ${sub.price} ${sub.currency}`);
+        doc.text(`Billing: ${sub.billing_cycle}`);
+        doc.text(`Status: ${sub.is_active ? "Active" : "Inactive"}`);
+        doc.text(`Category: ${sub.category || "-"}`);
+        doc.text(`Start Date: ${sub.start_date}`);
+        doc.text(`Description: ${sub.description || "-"}`);
+
+        doc.moveDown();
+    });
+
+    doc.end();
+});
+
 // Add a subscription
 app.post('/subscriptions', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
