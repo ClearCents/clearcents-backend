@@ -148,41 +148,235 @@ app.get("/subscriptions/download", async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({
+    margin: 50,
+    size: "A4",
+    bufferPages: true
+});
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
         "Content-Disposition",
-        "attachment; filename=subscriptions.pdf"
+        "attachment; filename=ClearCents-Subscriptions.pdf"
     );
 
     doc.pipe(res);
 
-    doc.fontSize(24).text("ClearCents Subscription Report");
+    // ==================== COLORS ====================
+
+    const purple = "#7C3AED";
+    const dark = "#1F2937";
+    const gray = "#6B7280";
+    const light = "#E5E7EB";
+    const green = "#16A34A";
+    const red = "#DC2626";
+
+    // ==================== CALCULATIONS ====================
+
+    const activeCount = subscriptions.filter(s => s.is_active).length;
+    const inactiveCount = subscriptions.length - activeCount;
+
+    let monthlyTotal = 0;
+
+    subscriptions.forEach(sub => {
+        if (!sub.is_active) return;
+
+        if (sub.billing_cycle?.toLowerCase() === "monthly")
+            monthlyTotal += Number(sub.price);
+
+        else if (sub.billing_cycle?.toLowerCase() === "yearly")
+            monthlyTotal += Number(sub.price) / 12;
+    });
+
+    const yearlyTotal = monthlyTotal * 12;
+
+    // ==================== HEADER ====================
+
+    doc
+        .fontSize(30)
+        .fillColor(purple)
+        .text("ClearCents", { align: "center" });
+
+    doc
+        .moveDown(0.2)
+        .fontSize(18)
+        .fillColor(dark)
+        .text("Subscription Report", {
+            align: "center"
+        });
+
     doc.moveDown();
 
-    doc.fontSize(12).text(`Email: ${userData.user.email}`);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`);
+    doc
+        .strokeColor(light)
+        .lineWidth(1)
+        .moveTo(50, doc.y)
+        .lineTo(545, doc.y)
+        .stroke();
+
+    doc.moveDown();
+
+    // ==================== USER INFO ====================
+
+    doc
+        .fontSize(11)
+        .fillColor(gray)
+        .text(`Email: ${userData.user.email}`);
+
+    doc.text(
+        `Generated: ${new Date().toLocaleDateString()}`
+    );
+
+    doc.moveDown();
+
+    // ==================== SUMMARY ====================
+
+    doc
+        .fontSize(18)
+        .fillColor(purple)
+        .text("Summary");
+
+    doc.moveDown(.5);
+
+    doc
+        .fontSize(12)
+        .fillColor(dark)
+        .text(`Total Subscriptions: ${subscriptions.length}`);
+
+    doc.text(`Active: ${activeCount}`);
+
+    doc.text(`Inactive: ${inactiveCount}`);
+
+    doc.moveDown(.4);
+
+    doc.text(
+        `Estimated Monthly Spending: $${monthlyTotal.toFixed(2)}`
+    );
+
+    doc.text(
+        `Estimated Yearly Spending: $${yearlyTotal.toFixed(2)}`
+    );
+
+    doc.moveDown();
+
+    doc
+    .strokeColor(light)
+    .lineWidth(1)
+    .moveTo(50, doc.y)
+    .lineTo(545, doc.y)
+    .stroke();
+
+    doc.moveDown();
+
+    // ==================== SUBSCRIPTIONS ====================
+
+    doc
+    .fontSize(18)
+    .fillColor(purple)
+    .text("Subscriptions");
 
     doc.moveDown();
 
     subscriptions.forEach((sub, index) => {
+
+        if (doc.y > 700) {
+            doc.addPage();
+        }
+
         doc
-            .fontSize(16)
-            .text(`${index + 1}. ${sub.name}`);
+            .roundedRect(50, doc.y, 495, 110, 8)
+            .fillAndStroke("#FAFAFA", "#E5E7EB");
 
-        doc.fontSize(12);
-        doc.text(`Price: ${sub.price} ${sub.currency}`);
-        doc.text(`Billing: ${sub.billing_cycle}`);
-        doc.text(`Status: ${sub.is_active ? "Active" : "Inactive"}`);
-        doc.text(`Category: ${sub.category || "-"}`);
-        doc.text(`Start Date: ${sub.start_date}`);
-        doc.text(`Description: ${sub.description || "-"}`);
+        const startY = doc.y - 105;
 
-        doc.moveDown();
+        doc
+            .fillColor(purple)
+            .fontSize(17)
+            .text(`${index + 1}. ${sub.name}`, 65, startY + 15);
+
+        doc
+            .fillColor(dark)
+            .fontSize(11);
+
+        doc.text(
+            `Price: ${sub.price} ${sub.currency}`,
+            65,
+            startY + 40
+        );
+
+        doc.text(
+            `Billing: ${sub.billing_cycle}`,
+            65,
+            startY + 58
+        );
+
+        doc.text(
+            `Category: ${sub.category || "-"}`,
+            250,
+            startY + 40
+        );
+
+        doc.text(
+            `Started: ${sub.start_date}`,
+            250,
+            startY + 58
+        );
+
+        doc.text(
+            `Description: ${sub.description || "-"}`,
+            65,
+            startY + 78,
+            {
+                width: 430
+            }
+        );
+
+        doc
+            .fillColor(sub.is_active ? green : red)
+            .fontSize(12)
+            .text(
+                sub.is_active
+                    ? "● ACTIVE"
+                    : "● INACTIVE",
+                430,
+                startY + 15
+            );
+
+        doc.moveDown(6);
+
     });
 
-    doc.end();
+    // ==================== FOOTER ====================
+
+const pages = doc.bufferedPageRange();
+
+for (let i = 0; i < pages.count; i++) {
+
+    doc.switchToPage(i);
+
+    doc
+        .fontSize(9)
+        .fillColor(gray)
+        .text(
+            `Generated by ClearCents`,
+            50,
+            810,
+            {
+                align: "left"
+            }
+        );
+
+    doc.text(
+        `Page ${i + 1} of ${pages.count}`,
+        50,
+        810,
+        {
+            align: "right"
+        }
+    );
+}
+
+doc.end();
 });
 
 // Add a subscription
