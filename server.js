@@ -300,6 +300,62 @@ app.post('/auth/change-password', async (req, res) => {
     res.json({ message: 'Password updated successfully' })
 })
 
+// Get a single subscription
+app.get('/subscriptions/:id', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { id } = req.params
+    const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', userData.user.id)
+        .maybeSingle()
+
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data) return res.status(404).json({ error: 'Subscription not found' })
+
+    res.json(data)
+})
+
+// Update a subscription
+app.put('/subscriptions/:id', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { id } = req.params
+    const { name, price, billing_cycle, start_date, currency, url, category, description, is_active } = req.body
+
+    const { data, error } = await userClient
+        .from('subscriptions')
+        .update({
+            name,
+            price,
+            billing_cycle,
+            start_date,
+            currency,
+            url: url || null,
+            category: category || null,
+            description: description || null,
+            is_active
+        })
+        .eq('id', id)
+        .eq('user_id', userData.user.id)
+        .select()
+
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data || data.length === 0) return res.status(404).json({ error: 'Subscription not found' })
+
+    res.json(data[0])
+})
+
 // DELETE ACCOUNT
 app.delete('/auth/delete-account', async (req, res) => {
     try {
