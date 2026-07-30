@@ -110,6 +110,7 @@ app.post('/auth/signin', async (req, res) => {
 })
 
 // Get all subscriptions
+// Get all subscriptions
 app.get('/subscriptions', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
@@ -119,6 +120,8 @@ app.get('/subscriptions', async (req, res) => {
         .from('subscriptions')
         .select('*')
         .eq('user_id', userData.user.id)
+        .order('position', { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true })
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
 })
@@ -337,6 +340,7 @@ app.get("/subscriptions/download", async (req, res) => {
 });
 
 // Add a subscription
+// Add a subscription
 app.post('/subscriptions', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
@@ -349,7 +353,6 @@ app.post('/subscriptions', async (req, res) => {
     const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
 
     let finalCurrency = currency
-    // If frontend didn't send a valid currency, fall back to the user's saved profile preference
     if (!validCurrencies.includes(finalCurrency)) {
         const { data: profileData } = await userClient
             .from('profiles')
@@ -358,6 +361,17 @@ app.post('/subscriptions', async (req, res) => {
             .maybeSingle()
         finalCurrency = profileData?.preferred_currency || 'USD'
     }
+
+    // Find the next position for this user (put new items at the end)
+    const { data: maxPosData } = await userClient
+        .from('subscriptions')
+        .select('position')
+        .eq('user_id', userData.user.id)
+        .order('position', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+
+    const nextPosition = (maxPosData?.position ?? -1) + 1
 
     const { data, error } = await userClient
         .from('subscriptions')
@@ -372,11 +386,42 @@ app.post('/subscriptions', async (req, res) => {
             url: url || null,
             category: category || null,
             description: description || null,
-            user_id: userData.user.id
+            user_id: userData.user.id,
+            position: nextPosition
         }])
         .select()
     if (error) return res.status(500).json({ error: error.message })
     res.json(data)
+})
+
+// Reorder subscriptions
+app.patch('/subscriptions/reorder', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { order } = req.body // array of subscription ids in their new order
+    if (!Array.isArray(order)) {
+        return res.status(400).json({ error: 'order must be an array of ids' })
+    }
+
+    try {
+        await Promise.all(
+            order.map((id, index) =>
+                userClient
+                    .from('subscriptions')
+                    .update({ position: index })
+                    .eq('id', id)
+                    .eq('user_id', userData.user.id)
+            )
+        )
+        res.json({ message: 'Order saved' })
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save order' })
+    }
 })
 
 // Delete a subscription
