@@ -161,13 +161,21 @@ app.get("/subscriptions/download", async (req, res) => {
 
     doc.pipe(res);
 
-    // ==================== COLORS ====================
+    // ==================== BRAND PALETTE ====================
     const purple = "#7C3AED";
-    const dark = "#1F2937";
+    const purpleDark = "#4C1D95";
+    const purpleTint = "#F3EEFF";
+    const dark = "#111827";
     const gray = "#6B7280";
+    const grayLight = "#9CA3AF";
     const light = "#E5E7EB";
+    const cardBg = "#FAFAFA";
     const green = "#16A34A";
+    const greenTint = "#DCFCE7";
     const red = "#DC2626";
+    const redTint = "#FEE2E2";
+
+    const currencySymbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', INR: '₹' };
 
     // ==================== CALCULATIONS ====================
     const activeCount = subscriptions.filter(s => s.is_active).length;
@@ -176,89 +184,156 @@ app.get("/subscriptions/download", async (req, res) => {
     let monthlyTotal = 0;
     subscriptions.forEach(sub => {
         if (!sub.is_active) return;
-        if (sub.billing_cycle?.toLowerCase() === "monthly") monthlyTotal += Number(sub.price);
-        else if (sub.billing_cycle?.toLowerCase() === "yearly") monthlyTotal += Number(sub.price) / 12;
+        const cycle = sub.billing_cycle?.toLowerCase();
+        const price = Number(sub.price) || 0;
+        if (cycle === "monthly") monthlyTotal += price;
+        else if (cycle === "yearly") monthlyTotal += price / 12;
+        else if (cycle === "weekly") monthlyTotal += price * 4.33;
+        else if (cycle === "biweekly") monthlyTotal += price * 2.17;
+        else if (cycle === "quarterly") monthlyTotal += price / 3;
+        else if (cycle === "semiannual") monthlyTotal += price / 6;
     });
 
     const yearlyTotal = monthlyTotal * 12;
 
-    // ==================== HEADER ====================
-    doc.fontSize(30).fillColor(purple).text("ClearCents", { align: "center" });
-    doc.moveDown(0.2).fontSize(18).fillColor(dark).text("Subscription Report", { align: "center" });
-    doc.moveDown();
+    const categoryTotals = {};
+    subscriptions.forEach(sub => {
+        if (!sub.is_active) return;
+        const cat = sub.category || "Uncategorized";
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + Number(sub.price || 0);
+    });
 
-    doc.strokeColor(light).lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown();
+    // ==================== COVER HEADER BAND ====================
+    doc.rect(0, 0, 595, 130).fill(purple);
+
+    doc.fontSize(30)
+        .fillColor("#FFFFFF")
+        .text("ClearCents", 50, 42);
+
+    doc.fontSize(11)
+        .fillColor(purpleTint)
+        .text("Know what you pay. Own what you use.", 50, 78);
+
+    doc.fontSize(10)
+        .fillColor(purpleTint)
+        .text(`Report generated ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}`, 50, 100);
+
+    doc.y = 155;
 
     // ==================== USER INFO ====================
-    doc.fontSize(11).fillColor(gray).text(`Email: ${userData.user.email}`);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`);
-    doc.moveDown();
+    doc.fontSize(10).fillColor(gray).text(`Prepared for: ${userData.user.email}`, 50);
+    doc.moveDown(1);
 
-    // ==================== SUMMARY ====================
-    doc.fontSize(18).fillColor(purple).text("Summary");
-    doc.moveDown(0.5);
+    // ==================== SUMMARY CARDS ====================
+    const cardY = doc.y;
+    const cardWidth = 152;
+    const cardGap = 12;
+    const cardHeight = 70;
 
-    doc.fontSize(12).fillColor(dark).text(`Total Subscriptions: ${subscriptions.length}`);
-    doc.text(`Active: ${activeCount}`);
-    doc.text(`Inactive: ${inactiveCount}`);
-    doc.moveDown(0.4);
+    const summaryCards = [
+        { label: "Total Subscriptions", value: `${subscriptions.length}`, accent: purple },
+        { label: "Active", value: `${activeCount}`, accent: green },
+        { label: "Monthly Spend", value: `~$${monthlyTotal.toFixed(2)}`, accent: purple }
+    ];
 
-    doc.text(`Estimated Monthly Spending: $${monthlyTotal.toFixed(2)}`);
-    doc.text(`Estimated Yearly Spending: $${yearlyTotal.toFixed(2)}`);
-    doc.moveDown();
+    summaryCards.forEach((card, i) => {
+        const x = 50 + i * (cardWidth + cardGap);
+        doc.roundedRect(x, cardY, cardWidth, cardHeight, 8).fill(cardBg);
+        doc.rect(x, cardY, 4, cardHeight).fill(card.accent);
+        doc.fontSize(9).fillColor(gray).text(card.label.toUpperCase(), x + 16, cardY + 14, { width: cardWidth - 24 });
+        doc.fontSize(20).fillColor(dark).text(card.value, x + 16, cardY + 34);
+    });
+
+    doc.y = cardY + cardHeight + 25;
+
+    doc.fontSize(10).fillColor(gray)
+        .text(`Estimated yearly spend: $${yearlyTotal.toFixed(2)}   |   Inactive subscriptions: ${inactiveCount}`, 50);
+    doc.moveDown(1.2);
+
+    // ==================== CATEGORY BREAKDOWN ====================
+    const categoryEntries = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+
+    if (categoryEntries.length > 0) {
+        doc.fontSize(14).fillColor(purpleDark).text("Spending by category", 50);
+        doc.moveDown(0.5);
+
+        const maxVal = Math.max(...categoryEntries.map(e => e[1]));
+        const barMaxWidth = 300;
+
+        categoryEntries.slice(0, 6).forEach(([cat, total]) => {
+            const rowY = doc.y;
+            const barWidth = maxVal > 0 ? Math.max((total / maxVal) * barMaxWidth, 4) : 4;
+
+            doc.fontSize(9).fillColor(dark).text(cat, 50, rowY, { width: 140 });
+            doc.roundedRect(195, rowY - 2, barMaxWidth, 10, 4).fill(light);
+            doc.roundedRect(195, rowY - 2, barWidth, 10, 4).fill(purple);
+            doc.fontSize(9).fillColor(gray).text(`$${total.toFixed(2)}`, 505, rowY, { width: 45, align: "right" });
+
+            doc.y = rowY + 20;
+        });
+
+        doc.moveDown(0.8);
+    }
 
     doc.strokeColor(light).lineWidth(1).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown();
+    doc.moveDown(1);
 
-    // ==================== SUBSCRIPTIONS ====================
-    doc.fontSize(18).fillColor(purple).text("Subscriptions");
-    doc.moveDown();
+    // ==================== SUBSCRIPTIONS LIST ====================
+    doc.fontSize(16).fillColor(purpleDark).text("All subscriptions");
+    doc.moveDown(0.7);
 
     subscriptions.forEach((sub, index) => {
-        // Проверяем место: высота карточки 110px. Оставляем запас до низа страницы (высота A4 = 842px)
-        if (doc.y + 120 > 790) {
+        if (doc.y + 110 > 780) {
             doc.addPage();
+            doc.y = 50;
         }
 
         const startY = doc.y;
+        const symbol = currencySymbols[sub.currency] || sub.currency || '';
 
-        // Сначала рисуем фон карточки
-        doc.roundedRect(50, startY, 495, 110, 8).fillAndStroke("#FAFAFA", "#E5E7EB");
+        doc.roundedRect(50, startY, 495, 100, 8).fillAndStroke(cardBg, light);
+        doc.rect(50, startY, 4, 100).fill(sub.is_active ? green : grayLight);
 
-        // Текст внутри карточки позиционируем относительно startY
-        doc.fillColor(purple).fontSize(17).text(`${index + 1}. ${sub.name}`, 65, startY + 15);
+        doc.fontSize(13).fillColor(dark).text(sub.name || "Untitled", 68, startY + 14, { width: 340 });
 
-        doc.fillColor(dark).fontSize(11);
-        doc.text(`Price: ${sub.price} ${sub.currency}`, 65, startY + 42);
-        doc.text(`Billing: ${sub.billing_cycle}`, 65, startY + 60);
+        const statusBg = sub.is_active ? greenTint : "#F3F4F6";
+        const statusText = sub.is_active ? green : gray;
+        const statusLabel = sub.is_active ? "Active" : "Inactive";
+        doc.roundedRect(465, startY + 14, 65, 16, 8).fill(statusBg);
+        doc.fontSize(8).fillColor(statusText).text(statusLabel, 465, startY + 18, { width: 65, align: "center" });
 
-        doc.text(`Category: ${sub.category || "-"}`, 250, startY + 42);
-        doc.text(`Started: ${sub.start_date || "-"}`, 250, startY + 60);
+        doc.fontSize(10).fillColor(gray);
+        doc.text(`Price`, 68, startY + 40, { continued: false });
+        doc.fontSize(12).fillColor(purple).text(`${symbol}${sub.price}`, 68, startY + 52);
 
-        doc.text(`Description: ${sub.description || "-"}`, 65, startY + 80, { width: 430, height: 20, ellipsis: true });
+        doc.fontSize(10).fillColor(gray).text(`Billing cycle`, 190, startY + 40);
+        doc.fontSize(11).fillColor(dark).text(sub.billing_cycle || "-", 190, startY + 52);
 
-        // Статус
-        doc.fillColor(sub.is_active ? green : red)
-            .fontSize(11)
-            .text(sub.is_active ? "● ACTIVE" : "● INACTIVE", 440, startY + 18, { align: "right", width: 90 });
+        doc.fontSize(10).fillColor(gray).text(`Category`, 310, startY + 40);
+        doc.fontSize(11).fillColor(dark).text(sub.category || "-", 310, startY + 52);
 
-        // Важно: принудительно двигаем курсор doc.y за пределы карточки для следующей итерации
-        doc.y = startY + 110;
-        doc.moveDown(0.5); // Небольшой отступ между карточками
+        doc.fontSize(10).fillColor(gray).text(`Started`, 430, startY + 40, { width: 100 });
+        doc.fontSize(11).fillColor(dark).text(sub.start_date || "-", 430, startY + 52, { width: 100 });
+
+        if (sub.description) {
+            doc.fontSize(9).fillColor(grayLight)
+                .text(sub.description, 68, startY + 76, { width: 460, height: 16, ellipsis: true });
+        }
+
+        doc.y = startY + 100;
+        doc.moveDown(0.6);
     });
 
-    // ==================== FOOTER ====================
-    // Завершаем добавление контента, чтобы точно знать финальное количество страниц
-    doc.end();
-
+    // ==================== FOOTER (added to every buffered page, THEN finalize) ====================
     const pages = doc.bufferedPageRange();
     for (let i = 0; i < pages.count; i++) {
         doc.switchToPage(i);
-
-        doc.fontSize(9).fillColor(gray).text(`Generated by ClearCents`, 50, 800, { align: "left" });
-        doc.text(`Page ${i + 1} of ${pages.count}`, 50, 800, { align: "right" });
+        doc.strokeColor(light).lineWidth(0.5).moveTo(50, 800).lineTo(545, 800).stroke();
+        doc.fontSize(8).fillColor(grayLight).text("ClearCents", 50, 810, { width: 200 });
+        doc.fontSize(8).fillColor(grayLight).text(`Page ${i + 1} of ${pages.count}`, 345, 810, { width: 200, align: "right" });
     }
+
+    doc.end();
 });
 
 // Add a subscription
