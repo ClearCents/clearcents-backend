@@ -97,4 +97,27 @@ router.get('/status', async (req, res) => {
   res.json({ connected: !!data });
 });
 
+// Disconnect Gmail — removes the stored tokens for this user
+router.delete('/disconnect', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  const { data: userData, error: userError } = await supabase.auth.getUser(token);
+  if (userError || !userData.user) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('gmail_tokens')
+    .delete()
+    .eq('user_id', userData.user.id);
+
+  if (error) {
+    console.error('Failed to disconnect Gmail:', error);
+    return res.status(500).json({ error: 'Failed to disconnect Gmail' });
+  }
+
+  res.json({ disconnected: true });
+});
+
 module.exports = router;
