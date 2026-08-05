@@ -46,6 +46,8 @@ function getSupabaseForUser(token) {
     )
 }
 
+const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
+
 // Test route
 app.get('/', (req, res) => {
     res.send('ClearCents Backend is running!')
@@ -110,13 +112,15 @@ app.post('/auth/signin', async (req, res) => {
 })
 
 // Get all subscriptions
-// Get all subscriptions
 app.get('/subscriptions', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
-    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
     if (userError) return res.status(401).json({ error: 'Invalid token' })
-    const { data, error } = await supabase
+
+    const { data, error } = await userClient
         .from('subscriptions')
         .select('*')
         .eq('user_id', userData.user.id)
@@ -135,13 +139,14 @@ app.get("/subscriptions/download", async (req, res) => {
         return res.status(401).json({ error: "No token provided" });
     }
 
-    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token);
 
     if (userError) {
         return res.status(401).json({ error: "Invalid token" });
     }
 
-    const { data: subscriptions, error } = await supabase
+    const { data: subscriptions, error } = await userClient
         .from("subscriptions")
         .select("*")
         .eq("user_id", userData.user.id);
@@ -175,8 +180,6 @@ app.get("/subscriptions/download", async (req, res) => {
     const cardBg = "#FAFAFA";
     const green = "#16A34A";
     const greenTint = "#DCFCE7";
-    const red = "#DC2626";
-    const redTint = "#FEE2E2";
 
     const currencySymbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', INR: '₹' };
 
@@ -285,7 +288,7 @@ app.get("/subscriptions/download", async (req, res) => {
     doc.fontSize(16).fillColor(purpleDark).text("All subscriptions");
     doc.moveDown(0.7);
 
-    subscriptions.forEach((sub, index) => {
+    subscriptions.forEach((sub) => {
         if (doc.y + 110 > 780) {
             doc.addPage();
             doc.y = 50;
@@ -340,7 +343,6 @@ app.get("/subscriptions/download", async (req, res) => {
 });
 
 // Add a subscription
-// Add a subscription
 app.post('/subscriptions', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
@@ -350,7 +352,6 @@ app.post('/subscriptions', async (req, res) => {
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
     const { name, price, usage_hours, is_active, billing_cycle, start_date, currency, url, category, description } = req.body
-    const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
 
     let finalCurrency = currency
     if (!validCurrencies.includes(finalCurrency)) {
@@ -424,14 +425,85 @@ app.patch('/subscriptions/reorder', async (req, res) => {
     }
 })
 
+// Get a single subscription
+app.get('/subscriptions/:id', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { id } = req.params
+    const { data, error } = await userClient
+        .from('subscriptions')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', userData.user.id)
+        .maybeSingle()
+
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data) return res.status(404).json({ error: 'Subscription not found' })
+
+    res.json(data)
+})
+
+// Update a subscription
+app.put('/subscriptions/:id', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'No token provided' })
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
+    if (userError) return res.status(401).json({ error: 'Invalid token' })
+
+    const { id } = req.params
+    const { name, price, billing_cycle, start_date, currency, url, category, description, is_active } = req.body
+
+    let finalCurrency = currency
+    if (!validCurrencies.includes(finalCurrency)) {
+        const { data: profileData } = await userClient
+            .from('profiles')
+            .select('preferred_currency')
+            .eq('user_id', userData.user.id)
+            .maybeSingle()
+        finalCurrency = profileData?.preferred_currency || 'USD'
+    }
+
+    const { data, error } = await userClient
+        .from('subscriptions')
+        .update({
+            name,
+            price,
+            billing_cycle,
+            start_date,
+            currency: finalCurrency,
+            url: url || null,
+            category: category || null,
+            description: description || null,
+            is_active
+        })
+        .eq('id', id)
+        .eq('user_id', userData.user.id)
+        .select()
+
+    if (error) return res.status(500).json({ error: error.message })
+    if (!data || data.length === 0) return res.status(404).json({ error: 'Subscription not found' })
+
+    res.json(data[0])
+})
+
 // Delete a subscription
 app.delete('/subscriptions/:id', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1]
     if (!token) return res.status(401).json({ error: 'No token provided' })
-    const { data: userData, error: userError } = await supabase.auth.getUser(token)
+
+    const userClient = getSupabaseForUser(token)
+    const { data: userData, error: userError } = await userClient.auth.getUser(token)
     if (userError) return res.status(401).json({ error: 'Invalid token' })
+
     const { id } = req.params
-    const { error } = await supabase
+    const { error } = await userClient
         .from('subscriptions')
         .delete()
         .eq('id', id)
@@ -495,7 +567,6 @@ app.patch('/profile/currency', async (req, res) => {
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
     const { currency } = req.body
-    const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
     if (!validCurrencies.includes(currency)) {
         return res.status(400).json({ error: 'Invalid currency' })
     }
@@ -532,6 +603,7 @@ app.post('/auth/change-password', async (req, res) => {
         return res.status(401).json({ error: 'Invalid token' })
     }
 
+    // Verify current password using a fresh, isolated client
     const verifyClient = createClient(
         process.env.SUPABASE_URL,
         process.env.SUPABASE_KEY
@@ -546,6 +618,7 @@ app.post('/auth/change-password', async (req, res) => {
         return res.status(401).json({ error: 'Current password is incorrect' })
     }
 
+    // Update password using the admin client (no session needed)
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
         userData.user.id,
         { password: newPassword }
@@ -556,62 +629,6 @@ app.post('/auth/change-password', async (req, res) => {
     }
 
     res.json({ message: 'Password updated successfully' })
-})
-
-// Get a single subscription
-app.get('/subscriptions/:id', async (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1]
-    if (!token) return res.status(401).json({ error: 'No token provided' })
-    const { data: userData, error: userError } = await supabase.auth.getUser(token)
-    if (userError) return res.status(401).json({ error: 'Invalid token' })
-
-    const { id } = req.params
-    const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('id', id)
-        .eq('user_id', userData.user.id)
-        .maybeSingle()
-
-    if (error) return res.status(500).json({ error: error.message })
-    if (!data) return res.status(404).json({ error: 'Subscription not found' })
-
-    res.json(data)
-})
-
-// Update a subscription
-app.put('/subscriptions/:id', async (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1]
-    if (!token) return res.status(401).json({ error: 'No token provided' })
-
-    const userClient = getSupabaseForUser(token)
-    const { data: userData, error: userError } = await userClient.auth.getUser(token)
-    if (userError) return res.status(401).json({ error: 'Invalid token' })
-
-    const { id } = req.params
-    const { name, price, billing_cycle, start_date, currency, url, category, description, is_active } = req.body
-
-    const { data, error } = await userClient
-        .from('subscriptions')
-        .update({
-            name,
-            price,
-            billing_cycle,
-            start_date,
-            currency,
-            url: url || null,
-            category: category || null,
-            description: description || null,
-            is_active
-        })
-        .eq('id', id)
-        .eq('user_id', userData.user.id)
-        .select()
-
-    if (error) return res.status(500).json({ error: error.message })
-    if (!data || data.length === 0) return res.status(404).json({ error: 'Subscription not found' })
-
-    res.json(data[0])
 })
 
 // DELETE ACCOUNT
