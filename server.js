@@ -46,6 +46,38 @@ function getSupabaseForUser(token) {
     )
 }
 
+function getExpiryDate(startDate, billingCycle) {
+    const expiry = new Date(startDate);
+
+    switch (billingCycle) {
+        case "weekly":
+            expiry.setDate(expiry.getDate() + 7);
+            break;
+
+        case "biweekly":
+            expiry.setDate(expiry.getDate() + 14);
+            break;
+
+        case "monthly":
+            expiry.setMonth(expiry.getMonth() + 1);
+            break;
+
+        case "quarterly":
+            expiry.setMonth(expiry.getMonth() + 3);
+            break;
+
+        case "semiannual":
+            expiry.setMonth(expiry.getMonth() + 6);
+            break;
+
+        case "yearly":
+            expiry.setFullYear(expiry.getFullYear() + 1);
+            break;
+    }
+
+    return expiry;
+}
+
 const validCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'INR']
 
 // Test route
@@ -113,22 +145,79 @@ app.post('/auth/signin', async (req, res) => {
 
 // Get all subscriptions
 app.get('/subscriptions', async (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1]
-    if (!token) return res.status(401).json({ error: 'No token provided' })
+    const token = req.headers.authorization?.split(' ')[1];
 
-    const userClient = getSupabaseForUser(token)
-    const { data: userData, error: userError } = await userClient.auth.getUser(token)
-    if (userError) return res.status(401).json({ error: 'Invalid token' })
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const userClient = getSupabaseForUser(token);
+
+    const { data: userData, error: userError } = await userClient.auth.getUser(token);
+
+    if (userError) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+
 
     const { data, error } = await userClient
         .from('subscriptions')
         .select('*')
         .eq('user_id', userData.user.id)
         .order('position', { ascending: true, nullsFirst: false })
-        .order('id', { ascending: true })
-    if (error) return res.status(500).json({ error: error.message })
-    res.json(data)
-})
+        .order('id', { ascending: true });
+
+
+    if (error) {
+        return res.status(500).json({ error: error.message });
+    }
+
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+
+    for (const sub of data) {
+
+        // Only check subscriptions that:
+        // 1. Are currently active
+        // 2. Do NOT auto renew
+        // 3. Have a start date
+        if (
+            sub.is_active &&
+            sub.auto_renew === false &&
+            sub.start_date
+        ) {
+
+            const expiry = getExpiryDate(
+                sub.start_date,
+                sub.billing_cycle
+            );
+
+            expiry.setHours(0, 0, 0, 0);
+
+
+            // Subscription period finished
+            if (today > expiry) {
+
+                await userClient
+                    .from('subscriptions')
+                    .update({
+                        is_active: false
+                    })
+                    .eq('id', sub.id)
+                    .eq('user_id', userData.user.id);
+
+
+                // Update response immediately
+                sub.is_active = false;
+            }
+        }
+    }
+
+
+    res.json(data);
+});
 
 const PDFDocument = require("pdfkit");
 
@@ -351,7 +440,19 @@ app.post('/subscriptions', async (req, res) => {
     const { data: userData, error: userError } = await userClient.auth.getUser(token)
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
-    const { name, price, usage_hours, is_active, billing_cycle, start_date, currency, url, category, description } = req.body
+    const {
+        name,
+        price,
+        usage_hours,
+        is_active,
+        auto_renew,
+        billing_cycle,
+        start_date,
+        currency,
+        url,
+        category,
+        description
+    } = req.body;
 
     let finalCurrency = currency
     if (!validCurrencies.includes(finalCurrency)) {
@@ -381,6 +482,7 @@ app.post('/subscriptions', async (req, res) => {
             price,
             usage_hours,
             is_active,
+            auto_renew,
             billing_cycle,
             start_date,
             currency: finalCurrency,
@@ -458,7 +560,7 @@ app.put('/subscriptions/:id', async (req, res) => {
     if (userError) return res.status(401).json({ error: 'Invalid token' })
 
     const { id } = req.params
-    const { name, price, billing_cycle, start_date, currency, url, category, description, is_active } = req.body
+    const { name, price, billing_cycle, start_date, currency, url, category, description, is_active, auto_renew } = req.body
 
     let finalCurrency = currency
     if (!validCurrencies.includes(finalCurrency)) {
@@ -481,7 +583,8 @@ app.put('/subscriptions/:id', async (req, res) => {
             url: url || null,
             category: category || null,
             description: description || null,
-            is_active
+            is_active,
+            auto_renew
         })
         .eq('id', id)
         .eq('user_id', userData.user.id)
