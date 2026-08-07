@@ -762,6 +762,71 @@ app.delete('/auth/delete-account', async (req, res) => {
     }
 });
 
+// FORGOT PASSWORD (sends a recovery code to the user's email)
+app.post('/auth/forgot-password', async (req, res) => {
+    const { email } = req.body
+
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required' })
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email)
+
+    if (error) {
+        return res.status(400).json({ error: error.message })
+    }
+
+    // Always respond success even if the email doesn't exist, so this
+    // endpoint can't be used to check which emails are registered.
+    res.json({ message: 'If that email exists, a reset code has been sent' })
+})
+
+// VERIFY RESET CODE + SET NEW PASSWORD
+app.post('/auth/reset-password', async (req, res) => {
+    const { email, code, newPassword } = req.body
+
+    if (!email || !code || !newPassword) {
+        return res.status(400).json({ error: 'Email, code, and new password are required' })
+    }
+    if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters long' })
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'recovery'
+    })
+
+    if (error) {
+        return res.status(400).json({ error: error.message })
+    }
+
+    const userId = data.user.id
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        { password: newPassword }
+    )
+
+    if (updateError) {
+        return res.status(500).json({ error: updateError.message })
+    }
+
+    res.json({ message: 'Password reset successfully' })
+})
+
+// RESEND RESET CODE
+app.post('/auth/resend-reset-code', async (req, res) => {
+    const { email } = req.body
+    if (!email) return res.status(400).json({ error: 'Email is required' })
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email)
+
+    if (error) return res.status(400).json({ error: error.message })
+    res.json({ message: 'Reset code resent' })
+})
+
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
     console.log(`ClearCents server running on port ${PORT}`)
